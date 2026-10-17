@@ -37,9 +37,9 @@ def fake_result(blockers):
 class StrictVisualTests(unittest.TestCase):
     def test_only_whitespace_and_same_skeleton_block(self):
         self.assertTrue(check_all.visual_blocking("whitespace", "暗篇空格子均值30.0%>20%"))
-        self.assertTrue(check_all.visual_blocking("alternation", "P03与前页骨架相同"))
-        self.assertFalse(check_all.visual_blocking("alternation", "全篇强调色均值3.000%不在1.2–2.0%"))
-        for name in ("richness", "color_area", "variation"):
+        self.assertTrue(check_all.visual_blocking("richness", "P03与前页骨架相同"))
+        self.assertFalse(check_all.visual_blocking("richness", "色彩丰富度均值不足33"))
+        for name in ("alternation", "color_area", "variation"):
             self.assertFalse(check_all.visual_blocking(name, "与前页骨架相同"))
 
     def test_blockers_refuse_without_reason(self):
@@ -87,13 +87,14 @@ def make_check_fixture(td, config=None, tone=None, mode=None):
     return script, td, report
 
 
-def run_check(td, strict=False, ws=None, alt=None, **kw):
+def run_check(td, strict=False, ws=None, rich=None, alt=None, **kw):
     """真实 check_note，其余规则全部桩掉，只看严格视觉的分流。"""
     script, pages, report = make_check_fixture(td, **kw)
     names = ("geometry_rules", "background_rules", "tone_rules", "backdrop_rules", "watermark_rules",
-             "richness_rules", "light_editorial_rules", "color_hierarchy_rules", "variation_rules")
+             "light_editorial_rules", "color_hierarchy_rules", "variation_rules")
     patches = [mock.patch.object(check_all, n, return_value=dict(OK)) for n in names]
     patches.append(mock.patch.object(check_all, "whitespace_check", **ws or dict(return_value=dict(OK))))
+    patches.append(mock.patch.object(check_all, "richness_rules", **rich or dict(return_value=dict(OK))))
     patches.append(mock.patch.object(check_all, "alternation_rules", **alt or dict(return_value=dict(OK))))
     for p in patches:
         p.start()
@@ -108,10 +109,12 @@ def run_check(td, strict=False, ws=None, alt=None, **kw):
 class CheckNoteStrictTests(unittest.TestCase):
     def test_blockers_populated_from_errors(self):
         ws = dict(return_value=dict(errors=["暗篇空格子均值30.0%>20%"]))
-        alt = dict(return_value=dict(errors=["P03与前页骨架相同", "全篇强调色均值3%不在1.2–2.0%"]))
+        rich = dict(return_value=dict(errors=["P03与前页骨架相同", "色彩丰富度均值不足33"]))
+        alt = dict(return_value=dict(errors=["全篇强调色均值3%不在1.2–2.0%"]))
         with tempfile.TemporaryDirectory() as td:
-            res, _ = run_check(td, strict=True, ws=ws, alt=alt)
+            res, _ = run_check(td, strict=True, ws=ws, rich=rich, alt=alt)
         self.assertEqual(res["visual_blockers"], ["P03与前页骨架相同", "暗篇空格子均值30.0%>20%"])
+        self.assertIn("色彩丰富度均值不足33", res["advisories"])
         self.assertIn("全篇强调色均值3%不在1.2–2.0%", res["advisories"])
 
     def test_default_off_has_no_blockers(self):
@@ -131,24 +134,37 @@ class CheckNoteStrictTests(unittest.TestCase):
 
     def test_check_exception_blocks(self):
         ws = dict(side_effect=OSError("缺PNG"))
-        alt = dict(side_effect=KeyError("layout"))
+        rich = dict(side_effect=KeyError("skeleton"))
         with tempfile.TemporaryDirectory() as td:
-            res, _ = run_check(td, strict=True, ws=ws, alt=alt)
-            off, _ = run_check(td, ws=ws, alt=alt)
+            res, _ = run_check(td, strict=True, ws=ws, rich=rich)
+            off, _ = run_check(td, ws=ws, rich=rich)
         self.assertEqual(len(res["visual_blockers"]), 2)
         self.assertTrue(all("检查未能运行" in m for m in res["visual_blockers"]))
         self.assertEqual(off["visual_blockers"], [])
 
+    def test_alternation_failure_remains_advisory(self):
+        with tempfile.TemporaryDirectory() as td:
+            res, _ = run_check(td, strict=True, alt=dict(side_effect=KeyError("color")))
+        self.assertEqual(res["visual_blockers"], [])
+        self.assertTrue(any("alternation" in m for m in res["advisories"]))
+
     def test_light_tone_not_applicable(self):
         ws = dict(return_value=dict(errors=["留白"]))
+        rich = dict(return_value=dict(errors=["P03与前页骨架相同"]))
         with tempfile.TemporaryDirectory() as td:
-            res, err = run_check(td, strict=True, ws=ws, tone="浅")
-            off, off_err = run_check(td, ws=ws, tone="浅")
+            res, err = run_check(td, strict=True, ws=ws, rich=rich, tone="浅")
+            off, off_err = run_check(td, ws=ws, rich=rich, tone="浅")
         self.assertFalse(res["checks"]["strict_visual"]["applicable"])
         self.assertIn("不适用", err)
         self.assertEqual(res["visual_blockers"], [])
         self.assertNotIn("strict_visual", off["checks"])
         self.assertEqual(off_err, "")
+
+    def test_light_tone_richness_failure_does_not_block(self):
+        with tempfile.TemporaryDirectory() as td:
+            res, _ = run_check(td, strict=True, tone="浅", rich=dict(side_effect=KeyError("skeleton")))
+        self.assertEqual(res["visual_blockers"], [])
+        self.assertFalse(res["checks"]["strict_visual"]["applicable"])
 
     def test_sample_not_applicable(self):
         with tempfile.TemporaryDirectory() as td:

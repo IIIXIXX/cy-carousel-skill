@@ -87,15 +87,16 @@ def check_note(script,pages,report=None,assets_root=None,products=False,strict_v
  # 严格视觉（默认关闭）只把留白均值/空带和「与前页骨架相同」升级为交付阻断；色彩丰富度、原图数量等依赖体裁，永远只是建议。
  # 阻断不是让执行者凑指标：确认页面目检没问题时，用 package.py --accept-visual "理由" 放行并留档。
  strict_visual=bool(strict_visual or data.get('config',{}).get('visual_gate'));blockers=[]
+ visual_applicable=not sample and normalize_tone(data.get('tone',data.get('config',{}).get('tone','暗')))!='浅'
  def run(name,fn):
   target=advisories if name in ADVISORY else errors
   try:
    result=fn();checks[name]=result;target.extend(result.get('errors',[]))
-   if strict_visual:blockers.extend(m for m in result.get('errors',[]) if visual_blocking(name,m))
+   if strict_visual and visual_applicable:blockers.extend(m for m in result.get('errors',[]) if visual_blocking(name,m))
   except (OSError,ValueError,KeyError,StopIteration,TypeError) as exc:
    checks[name]={'passed':False,'errors':[str(exc)]};target.append(f'{name}: {exc}')
    # 严格模式下，留白/骨架检查自己出错不能当作「无阻断」放行
-   if strict_visual and name in VISUAL_GATE_CHECKS:blockers.append(f'{name}检查未能运行：{exc}')
+   if strict_visual and visual_applicable and name in VISUAL_GATE_CHECKS:blockers.append(f'{name}检查未能运行：{exc}')
  def not_applicable(reason):
   checks['strict_visual']={'applicable':False,'reason':reason+'，严格视觉检查不适用，visual_blockers 恒为空不代表通过'}
   print('严格视觉不适用：'+checks['strict_visual']['reason'],file=sys.stderr)
@@ -151,11 +152,11 @@ def load_manifest(path):
  return data['assets']
 
 
-VISUAL_GATE_CHECKS=('whitespace','alternation')
+VISUAL_GATE_CHECKS=('whitespace','richness')
 
 
 def visual_blocking(name,message):
- return name=='whitespace' or (name=='alternation' and '骨架相同' in message)
+ return name=='whitespace' or (name=='richness' and '骨架相同' in message)
 
 
 def visual_acceptance(advisories):

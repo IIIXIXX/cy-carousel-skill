@@ -199,7 +199,7 @@ def richness_rules(data,reports,script,pages_dir):
     if overlap/max(area,1e-9)>=.20:overlay.append(e['text']);break
   skeleton=p.get('skeleton');position=p.get('text_position')
   if not skeleton or not position:errors.append(f'P{number:02}缺少骨架/文字位置记录')
-  if skeleton==previous:errors.append(f'P{number:02}与前页骨架相同')
+  if skeleton and skeleton==previous:errors.append(f'P{number:02}与前页骨架相同')
   previous=skeleton
   if not light_editorial and rectangles>2:errors.append(f'P{number:02}矩形照片{rectangles}>2')
   if not p.get('visual_focus'):errors.append(f'P{number:02}未指定单一视觉焦点')

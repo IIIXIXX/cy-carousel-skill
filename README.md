@@ -138,6 +138,8 @@ python3 scripts/package.py --note . --pages pages --out 交付 --assets-root .
 python3 scripts/package.py --note . --pages pages --out 交付 --assets-root . --strict-visual
 ```
 
+连续同骨架按内页的非空 `skeleton` 标签判断。未填写标签仍提示缺少记录，不把空值当作重复布局；严格模式只阻断留白、已知骨架重复及相关检查失败，其他视觉建议保持为建议项。
+
 ## 目录结构
 
 ```
